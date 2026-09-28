@@ -188,7 +188,7 @@ main { padding: 1.5rem 1.25rem 3rem; }
 .card h3 { margin: 0.2em 0 0; }
 .card .tag { align-self: flex-start; }
 .card p { margin: 0; color: var(--muted); font-size: 0.93rem; }
-.card > .btn { align-self: flex-start; margin-top: auto; }
+.card > .btn, .card > .row:last-child { align-self: flex-start; margin-top: auto; }
 .drill-card { cursor: pointer; transition: transform 0.12s, border-color 0.12s; font: inherit; color: inherit; }
 .drill-card:hover { border-color: var(--accent); transform: translateY(-2px); }
 .callout {
@@ -413,6 +413,29 @@ b.bionic { font-weight: 700; }
 }
 .settings-pop label:not(.row) { display: flex; flex-direction: column; gap: 0.3rem; }
 
+/* Agent bridge */
+.agent-pill {
+  display: inline-flex; align-items: center; gap: 0.4em; font-size: 0.8rem; font-weight: 600; white-space: nowrap;
+  padding: 0.2em 0.7em; border-radius: 99px; text-decoration: none; background: var(--surface-2); color: var(--muted);
+}
+.agent-pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); display: inline-block; }
+.agent-pill.connected { background: var(--good-soft); color: var(--good); }
+.agent-pill.connected .dot { background: var(--good); }
+.agent-pill.connecting .dot { background: var(--warn); }
+.agent-pill.error { background: var(--bad-soft); color: var(--bad); }
+.agent-pill.error .dot { background: var(--bad); }
+.bridge-status p { margin: 0.6rem 0 0; }
+.code-block { position: relative; margin: 0.5rem 0; }
+.code-block pre {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.9rem 1rem;
+  padding-right: 5rem; overflow-x: auto; margin: 0; font-size: 0.85rem; line-height: 1.5;
+}
+.code-block .btn { position: absolute; top: 0.5rem; right: 0.5rem; }
+.seg + p { margin-top: 0.6rem; }
+.examples { padding-left: 1.2em; }
+.examples li { margin-bottom: 0.4em; font-style: italic; }
+.agent-banner { margin-top: 0.7rem; padding: 0.5rem 0.7rem; background: var(--accent-soft); border-radius: 8px; }
+
 /* Prose pages */
 .prose { max-width: 46em; }
 .prose li { margin-bottom: 0.45em; }
@@ -429,6 +452,8 @@ b.bionic { font-weight: 700; }
   .pacer-text { padding: 1rem; }
   .rsvp-stage { height: 160px; }
   .span-words { font-size: 1.1rem; }
+  .code-block pre { padding-right: 1rem; }
+  .code-block .btn { position: static; margin-top: 0.4rem; }
   h1 { font-size: 1.6rem; }
 }
 

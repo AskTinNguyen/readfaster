@@ -7,6 +7,9 @@ import { Reader } from './pages/Reader';
 import { Agent } from './pages/Agent';
 import { Progress } from './pages/Progress';
 import { Learn } from './pages/Learn';
+import { Agents } from './pages/Agents';
+import { AgentBridge } from './components/AgentBridge';
+import { useBridge } from './lib/bridgeClient';
 import type { Settings } from './lib/storage';
 
 const NAV = [
@@ -14,21 +17,26 @@ const NAV = [
   { id: 'read', label: 'Reader' },
   { id: 'agent', label: 'Agent output' },
   { id: 'progress', label: 'Progress' },
+  { id: 'agents', label: 'Agents' },
   { id: 'learn', label: 'How it works' },
 ];
 
 export function App() {
   const [route] = useRoute();
-  const [section, sub] = route.split('/');
+  const [path, query = ''] = route.split('?');
+  const [section, sub] = path.split('/');
+  const params = new URLSearchParams(query);
   const [showSettings, setShowSettings] = useState(false);
+  const bridge = useBridge();
 
   let page;
   switch (section) {
-    case 'train': page = <Train key={sub ?? 'hub'} initialDrill={sub} />; break;
+    case 'train': page = <Train key={`${sub ?? 'hub'}?${params.get('passage') ?? ''}${params.get('go') ?? ''}${params.get('wpm') ?? ''}`} initialDrill={sub} params={params} />; break;
     case 'read': page = <Reader />; break;
     case 'agent': page = <Agent initialTab={sub} />; break;
     case 'progress': page = <Progress />; break;
     case 'learn': page = <Learn />; break;
+    case 'agents': page = <Agents />; break;
     default: page = <Home />;
   }
 
@@ -47,10 +55,16 @@ export function App() {
             <a key={n.id} href={`#/${n.id}`} className={section === n.id ? 'on' : ''}>{n.label}</a>
           ))}
         </nav>
+        {bridge.status !== 'off' && (
+          <a href="#/agents" className={`agent-pill ${bridge.status}`} title={`Agent bridge: ${bridge.status}`}>
+            <span className="dot" /> {bridge.status === 'connected' ? 'Agent' : bridge.status === 'error' ? 'Agent offline' : 'Agent…'}
+          </a>
+        )}
         <button className="btn ghost icon-btn" onClick={() => setShowSettings((s) => !s)} aria-label="Display settings" title="Display settings">
           Aa
         </button>
       </header>
+      <AgentBridge />
       {showSettings && <DisplaySettings onClose={() => setShowSettings(false)} />}
       <main>{page}</main>
       <footer className="footer muted small">

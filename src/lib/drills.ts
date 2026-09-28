@@ -1,4 +1,31 @@
-/** Generators for the eye-span drills. */
+/** Drill catalogue and generators for the eye-span drills. */
+import type { SessionMode } from './storage';
+
+export interface DrillDef {
+  id: SessionMode;
+  name: string;
+  technique: string;
+  blurb: string;
+  reading: boolean;
+}
+
+/** Catalogue of drills, shared by the app and the agent CLI. */
+export const DRILLS: DrillDef[] = [
+  { id: 'test', name: 'Speed test', technique: 'Baseline', reading: true,
+    blurb: 'Read normally, then answer 5 questions. Gives your real reading speed and effective (speed × comprehension) speed.' },
+  { id: 'pacer', name: 'Visual pacer', technique: 'Pacing', reading: true,
+    blurb: 'A guide sweeps under the text like a finger. Keeps your eyes moving forward and stops back-skipping.' },
+  { id: 'chunk', name: 'Chunk reader', technique: 'Chunking', reading: true,
+    blurb: 'Phrases of 2–5 words flash as single units. Trains you to take in meaning in groups, not word by word.' },
+  { id: 'rsvp', name: 'Flash reader (RSVP)', technique: 'Subvocalization', reading: true,
+    blurb: 'One word at a time in a fixed spot. Above ~350 wpm your inner voice can\'t keep up, so you learn to let it go.' },
+  { id: 'ramp', name: 'Speed ramp', technique: 'Subvocalization', reading: true,
+    blurb: 'Starts at your pace and speeds up every few sentences. Pushes you past speaking speed in small steps.' },
+  { id: 'span', name: 'Flash span', technique: 'Chunking', reading: false,
+    blurb: 'Words flash around a fixation point for a split second. Widens how much you take in per glance.' },
+  { id: 'schulte', name: 'Schulte table', technique: 'Peripheral vision', reading: false,
+    blurb: 'Find 1–25 in order without moving your eyes from the centre. Classic peripheral-vision exercise.' },
+];
 
 export function shuffle<T>(items: T[], rand = Math.random): T[] {
   const a = items.slice();
