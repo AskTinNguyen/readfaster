@@ -1,39 +1,24 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../state';
 import { useCopy } from '../hooks';
 import { SAMPLES } from '../data/samples';
 import { analyze, tighten, type Analysis, type Severity } from '../lib/analyzer';
 import { formatDuration } from '../lib/text';
 import {
-  PRESETS, RULES, STEERING, TARGETS, applyPreset, buildPrompt, defaultOptions,
+  PRESETS, RULES, STEERING, TARGETS, applyPreset, buildPrompt,
   type BuildOptions, type Target,
 } from '../lib/promptBuilder';
-import { describeError, loadAiConfig, rewriteForFastReading, type AiConfig } from '../lib/ai';
+import { loadPromptOptions, savePromptOptions } from '../lib/promptStore';
 import { Markdown } from '../components/Markdown';
-import { AiSettings } from '../components/AiSettings';
 
 type Tab = 'analyze' | 'prompt' | 'steer';
-
-const PROMPT_KEY = 'readfaster.prompt.v1';
-
-function loadPromptOptions(): BuildOptions {
-  try {
-    const raw = localStorage.getItem(PROMPT_KEY);
-    if (raw) {
-      const d = defaultOptions();
-      const p = JSON.parse(raw) as BuildOptions;
-      return { ...d, ...p, enabled: { ...d.enabled, ...p.enabled }, values: { ...d.values, ...p.values } };
-    }
-  } catch { /* fall through */ }
-  return defaultOptions();
-}
 
 export function Agent({ initialTab }: { initialTab?: string }) {
   const [tab, setTab] = useState<Tab>(initialTab === 'prompt' || initialTab === 'steer' ? initialTab : 'analyze');
   const [opts, setOpts] = useState<BuildOptions>(loadPromptOptions);
 
   useEffect(() => {
-    try { localStorage.setItem(PROMPT_KEY, JSON.stringify(opts)); } catch { /* ignore */ }
+    savePromptOptions(opts);
   }, [opts]);
 
   const go = (t: Tab) => {
@@ -73,13 +58,8 @@ function Analyze({ promptOptions, onOpenBuilder }: { promptOptions: BuildOptions
     return handoff ?? '';
   });
   const [showMarks, setShowMarks] = useState(true);
-  const [ai, setAi] = useState<AiConfig>(loadAiConfig);
-  const [showAi, setShowAi] = useState(false);
   const [rewrite, setRewrite] = useState<string | null>(null);
-  const [rewriting, setRewriting] = useState(false);
-  const [error, setError] = useState('');
   const [copied, copy] = useCopy();
-  const abort = useRef<AbortController | null>(null);
 
   const a = useMemo(() => analyze(text, settings.wpm), [text, settings.wpm]);
   const after = useMemo(() => (rewrite ? analyze(rewrite, settings.wpm) : null), [rewrite, settings.wpm]);
@@ -90,21 +70,11 @@ function Analyze({ promptOptions, onOpenBuilder }: { promptOptions: BuildOptions
 
   const doTighten = () => setRewrite(tighten(text).text);
 
-  const doAiRewrite = async () => {
-    if (!ai.apiKey) { setShowAi(true); return; }
-    setError('');
-    setRewriting(true);
-    setRewrite('');
-    abort.current = new AbortController();
-    try {
-      const style = buildPrompt({ ...promptOptions, target: 'system', extra: promptOptions.extra });
-      await rewriteForFastReading(ai, style, text, (snap) => setRewrite(snap), abort.current.signal);
-    } catch (e) {
-      if (!abort.current?.signal.aborted) setError(describeError(e));
-    } finally {
-      setRewriting(false);
-    }
-  };
+  /** A self-contained request any agent or chat model can act on. */
+  const rewriteRequest = () =>
+    'Rewrite the text below for fast reading. Keep every fact, number, name, decision, caveat and action item. ' +
+    'Keep code blocks and file paths exactly as written. Output only the rewritten text.\n\n' +
+    `${buildPrompt({ ...promptOptions, target: 'inline' }).replace(/\n\n---\n$/, '')}\n\n<text>\n${text}\n</text>`;
 
   return (
     <div>
@@ -145,22 +115,20 @@ function Analyze({ promptOptions, onOpenBuilder }: { promptOptions: BuildOptions
 
           <div className="row wrap">
             <button className="btn" onClick={doTighten}>Tighten (instant, local)</button>
-            <button className="btn primary" onClick={doAiRewrite} disabled={rewriting}>
-              {rewriting ? 'Rewriting…' : 'Rewrite with Claude'}
+            <button className="btn primary" onClick={() => copy(rewriteRequest())}>
+              {copied ? 'Copied: paste into your agent' : 'Copy rewrite request for your agent'}
             </button>
-            {rewriting && <button className="btn ghost" onClick={() => abort.current?.abort()}>Stop</button>}
-            <button className="btn ghost small" onClick={() => setShowAi((s) => !s)}>AI settings</button>
+            <button className="btn ghost small" onClick={() => setRewrite('')}>Compare a rewrite</button>
             <span className="grow" />
             <label className="row small">
               <input type="checkbox" checked={showMarks} onChange={(e) => setShowMarks(e.target.checked)} />
               Highlight filler
             </label>
           </div>
-          {(showAi || (!ai.apiKey && rewriting)) && <AiSettings config={ai} onChange={(c) => { setAi(c); setShowAi(false); }} />}
-          {error && <div className="callout bad">{error}</div>}
           <p className="muted small">
-            Claude rewrites use the style in your <button className="link" onClick={onOpenBuilder}>style prompt builder</button>.
-            Tighten only strips stock openers, sign-offs and wordy phrases.
+            ReadFaster doesn't call any AI model. Your own agent does the rewrite: the copied request includes the style from your
+            {' '}<button className="link" onClick={onOpenBuilder}>style prompt builder</button>. Agents connected over
+            {' '}<a href="#/agents">MCP</a> can run this analysis themselves before they reply. Tighten only strips stock openers, sign-offs and wordy phrases.
           </p>
 
           <div className={rewrite != null ? 'split' : ''}>
@@ -173,22 +141,36 @@ function Analyze({ promptOptions, onOpenBuilder }: { promptOptions: BuildOptions
                 <div className="row">
                   <h3 className="grow">Rewritten</h3>
                   {after && <span className={`pill ${scoreClass(after.score)}`}>{after.score}</span>}
-                  <button className="btn small" onClick={() => copy(rewrite)} disabled={!rewrite}>{copied ? 'Copied' : 'Copy'}</button>
-                  <button className="btn small" onClick={() => { setText(rewrite); setRewrite(null); }} disabled={!rewrite || rewriting}>Use as input</button>
+                  <button className="btn small" onClick={() => { setText(rewrite); setRewrite(null); }} disabled={!rewrite}>Use as input</button>
+                  <button className="btn small ghost" onClick={() => setRewrite(null)}>Close</button>
                 </div>
-                {after && !rewriting && (
+                {after && rewrite && (
                   <p className="small ok-text">
                     {a.words} → {after.words} words ({a.words ? Math.round(((a.words - after.words) / a.words) * 100) : 0}% shorter),
                     {' '}~{formatDuration(a.readingSeconds - after.readingSeconds)} saved at {settings.wpm} wpm.
                   </p>
                 )}
-                <Markdown source={rewrite || '…'} />
+                {rewrite ? (
+                  <Markdown source={rewrite} />
+                ) : (
+                  <PasteRewrite onSubmit={setRewrite} />
+                )}
               </div>
             )}
           </div>
         </>
       )}
     </div>
+  );
+}
+
+function PasteRewrite({ onSubmit }: { onSubmit: (text: string) => void }) {
+  const [draft, setDraft] = useState('');
+  return (
+    <>
+      <textarea className="paste" rows={10} autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Paste your agent's rewrite here to compare scores." />
+      <button className="btn primary small" disabled={!draft.trim()} onClick={() => onSubmit(draft)}>Compare</button>
+    </>
   );
 }
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-/** Current location hash as a route, e.g. "#/train" -> "train". */
+/** Current location hash as a route, e.g. "#/train/pacer?wpm=300" -> "train/pacer?wpm=300". */
 export function useRoute(): [string, (r: string) => void] {
   const get = () => window.location.hash.replace(/^#\/?/, '') || 'home';
   const [route, setRoute] = useState(get);

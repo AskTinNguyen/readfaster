@@ -50,3 +50,11 @@ describe('isRecordable', () => {
     expect(isRecordable({ words: 400, avgWpm: 320 })).toBe(true);
   });
 });
+
+import { sanitizeSettings } from '../storage';
+describe('sanitizeSettings', () => {
+  it('keeps known keys, clamps numbers and drops the rest', () => {
+    expect(sanitizeSettings({ wpm: 99999, chunkSize: 3.4, font: 'comic', theme: 'dark', bionic: 'yes', beat: true, evil: 1 }))
+      .toEqual({ wpm: 1500, chunkSize: 3, theme: 'dark', beat: true });
+  });
+});

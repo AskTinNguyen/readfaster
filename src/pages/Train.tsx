@@ -9,46 +9,27 @@ import { Pacer } from '../components/Pacer';
 import { Quiz } from '../components/Quiz';
 import { SpeedTest } from '../components/SpeedTest';
 import { Schulte } from '../components/Schulte';
+import { DRILLS } from '../lib/drills';
 import { SpanDrill } from '../components/SpanDrill';
-
-interface DrillDef {
-  id: SessionMode;
-  name: string;
-  technique: string;
-  blurb: string;
-  reading: boolean;
-}
-
-export const DRILLS: DrillDef[] = [
-  { id: 'test', name: 'Speed test', technique: 'Baseline', reading: true,
-    blurb: 'Read normally, then answer 5 questions. Gives your real reading speed and effective (speed × comprehension) speed.' },
-  { id: 'pacer', name: 'Visual pacer', technique: 'Pacing', reading: true,
-    blurb: 'A guide sweeps under the text like a finger. Keeps your eyes moving forward and stops back-skipping.' },
-  { id: 'chunk', name: 'Chunk reader', technique: 'Chunking', reading: true,
-    blurb: 'Phrases of 2–5 words flash as single units. Trains you to take in meaning in groups, not word by word.' },
-  { id: 'rsvp', name: 'Flash reader (RSVP)', technique: 'Subvocalization', reading: true,
-    blurb: 'One word at a time in a fixed spot. Above ~350 wpm your inner voice can\'t keep up, so you learn to let it go.' },
-  { id: 'ramp', name: 'Speed ramp', technique: 'Subvocalization', reading: true,
-    blurb: 'Starts at your pace and speeds up every few sentences. Pushes you past speaking speed in small steps.' },
-  { id: 'span', name: 'Flash span', technique: 'Chunking', reading: false,
-    blurb: 'Words flash around a fixation point for a split second. Widens how much you take in per glance.' },
-  { id: 'schulte', name: 'Schulte table', technique: 'Peripheral vision', reading: false,
-    blurb: 'Find 1–25 in order without moving your eyes from the centre. Classic peripheral-vision exercise.' },
-];
 
 type Step = 'pick' | 'setup' | 'run' | 'quiz' | 'result';
 
-export function Train({ initialDrill }: { initialDrill?: string }) {
+export function Train({ initialDrill, params }: { initialDrill?: string; params?: URLSearchParams }) {
   const { settings, updateSettings, history, addSession } = useApp();
   const [drillId, setDrillId] = useState<SessionMode | null>(
     DRILLS.some((d) => d.id === initialDrill) ? (initialDrill as SessionMode) : null,
   );
-  const [step, setStep] = useState<Step>(drillId ? 'setup' : 'pick');
+  // Drills opened by an agent (go=1) skip setup and wait on the Start button.
+  const agentStart = params?.get('go') === '1' && !!DRILLS.find((d) => d.id === drillId)?.reading;
+  const [step, setStep] = useState<Step>(drillId ? (agentStart ? 'run' : 'setup') : 'pick');
   const drill = DRILLS.find((d) => d.id === drillId) ?? null;
 
   const readIds = useMemo(() => new Set(history.map((h) => h.passageId).filter(Boolean)), [history]);
   const suggested = PASSAGES.find((p) => !readIds.has(p.id)) ?? PASSAGES[0];
-  const [passageId, setPassageId] = useState<string>(suggested?.id ?? 'custom');
+  const requested = params?.get('passage');
+  const [passageId, setPassageId] = useState<string>(
+    requested && PASSAGES.some((p) => p.id === requested) ? requested : suggested?.id ?? 'custom',
+  );
   const [custom, setCustom] = useState('');
   const passage: Passage | undefined = PASSAGES.find((p) => p.id === passageId);
   const text = passage ? passage.text : custom;
@@ -56,8 +37,12 @@ export function Train({ initialDrill }: { initialDrill?: string }) {
   const tokens = useMemo(() => tokenize(text), [text]);
 
   const recommended = recommendWpm(history, settings.wpm);
-  const [wpm, setWpm] = useState(settings.wpm);
-  const [chunk, setChunk] = useState(Math.max(2, settings.chunkSize));
+  const paramNum = (k: string, lo: number, hi: number) => {
+    const v = Number(params?.get(k));
+    return Number.isFinite(v) && v > 0 ? Math.max(lo, Math.min(hi, Math.round(v))) : undefined;
+  };
+  const [wpm, setWpm] = useState(paramNum('wpm', 60, 1500) ?? settings.wpm);
+  const [chunk, setChunk] = useState(paramNum('chunk', 2, 5) ?? Math.max(2, settings.chunkSize));
   const [result, setResult] = useState<ReadResult | null>(null);
   const [comprehension, setComprehension] = useState<number | null>(null);
   const [runKey, setRunKey] = useState(0);

@@ -1,19 +1,18 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../state';
 import { SAMPLES } from '../data/samples';
+import type { Question } from '../data/types';
 import { tighten } from '../lib/analyzer';
 import { isRecordable } from '../lib/storage';
+import { useReaderInbox } from '../lib/inbox';
+import type { ReaderMode } from '../lib/handoff';
 import { countWords, formatDuration, markdownToPlain, readingSeconds, tokenize } from '../lib/text';
 import { Markdown } from '../components/Markdown';
 import { Pacer } from '../components/Pacer';
 import { RSVP, type ReadResult } from '../components/RSVP';
 import { Quiz } from '../components/Quiz';
-import { describeError, generateQuiz, loadAiConfig } from '../lib/ai';
-import type { Question } from '../data/types';
 
-type Mode = 'view' | 'pacer' | 'rsvp' | 'chunk';
-
-const MODES: { id: Mode; label: string; hint: string }[] = [
+const MODES: { id: ReaderMode; label: string; hint: string }[] = [
   { id: 'view', label: 'Formatted', hint: 'Rendered Markdown, optionally with bionic emphasis.' },
   { id: 'pacer', label: 'Pacer', hint: 'Guide sweeps through the text at your speed.' },
   { id: 'chunk', label: 'Chunks', hint: 'Phrases flash one at a time.' },
@@ -21,51 +20,69 @@ const MODES: { id: Mode; label: string; hint: string }[] = [
 ];
 
 /**
- * Apply the trained techniques to real reading: paste agent output and read
- * it with a pacer, chunker or flash reader, then check what you retained.
+ * Apply the trained techniques to real reading: paste agent output (or have
+ * your agent send it here) and read it with a pacer, chunker or flash
+ * reader, then check what you retained.
  */
 export function Reader() {
   const { settings, updateSettings, addSession } = useApp();
   const [source, setSource] = useState('');
-  const [mode, setMode] = useState<Mode>('view');
+  const [title, setTitle] = useState('');
+  const [questions, setQuestions] = useState<Question[] | null>(null);
+  const [mode, setMode] = useState<ReaderMode>('view');
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<ReadResult | null>(null);
   const [recall, setRecall] = useState('');
   const [reveal, setReveal] = useState(false);
+  const [quizScore, setQuizScore] = useState<number | null>(null);
+  const [quizOpen, setQuizOpen] = useState(false);
   const [tightenNote, setTightenNote] = useState('');
   const [runKey, setRunKey] = useState(0);
-  const [quiz, setQuiz] = useState<Question[] | null>(null);
-  const [quizState, setQuizState] = useState<'idle' | 'loading' | 'error'>('idle');
-  const [quizError, setQuizError] = useState('');
-  const [quizScore, setQuizScore] = useState<number | null>(null);
-  const ai = useMemo(loadAiConfig, [result]);
+  const recorded = useRef(false);
+  // Speed/chunk requested by the agent for this text only; the user's saved settings stay as they are.
+  const [override, setOverride] = useState<{ wpm?: number; chunkSize?: number }>({});
+  const wpm = override.wpm ?? settings.wpm;
+  const chunkSize = override.chunkSize ?? settings.chunkSize;
 
-  const resetResult = () => {
-    setResult(null);
-    setRecall('');
-    setReveal(false);
-    setQuiz(null);
-    setQuizState('idle');
-    setQuizScore(null);
-  };
-
-  const makeQuiz = async () => {
-    setQuizState('loading');
-    setQuizError('');
-    try {
-      const qs = await generateQuiz(ai, plain);
-      if (!qs.length) throw new Error('No usable questions came back. Try again.');
-      setQuiz(qs);
-      setQuizState('idle');
-    } catch (e) {
-      setQuizError(describeError(e));
-      setQuizState('error');
-    }
-  };
+  // Text sent by the user's agent (MCP bridge or deep link).
+  const delivery = useReaderInbox();
+  const lastSeq = useRef(0);
+  useEffect(() => {
+    if (!delivery || delivery.seq === lastSeq.current) return;
+    lastSeq.current = delivery.seq;
+    const p = delivery.payload;
+    setOverride({ wpm: p.wpm, chunkSize: p.chunkSize });
+    setSource(p.text);
+    setTitle(p.title ?? '');
+    setQuestions(p.questions ?? null);
+    setMode(p.mode ?? 'view');
+    resetResult();
+    setTightenNote('');
+    setRunKey((k) => k + 1);
+    setRunning(!!p.mode && p.mode !== 'view');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [delivery]);
 
   const plain = useMemo(() => markdownToPlain(source), [source]);
   const tokens = useMemo(() => tokenize(plain), [plain]);
   const words = countWords(plain);
+  const sessionMode = mode === 'chunk' ? 'chunk' : mode === 'rsvp' ? 'rsvp' : 'pacer';
+  const note = title ? `agent text: ${title}` : 'own text';
+
+  function resetResult() {
+    setResult(null);
+    setRecall('');
+    setReveal(false);
+    setQuizScore(null);
+    setQuizOpen(false);
+    recorded.current = false;
+  }
+
+  const record = (r: ReadResult, comprehension?: number) => {
+    if (recorded.current || !isRecordable(r)) return;
+    recorded.current = true;
+    addSession({ mode: sessionMode, wpm: r.avgWpm, comprehension, words: r.words, seconds: r.seconds, note });
+  };
 
   const doTighten = () => {
     const r = tighten(source);
@@ -78,21 +95,16 @@ export function Reader() {
     );
   };
 
-  const sessionMode = mode === 'chunk' ? 'chunk' : mode === 'rsvp' ? 'rsvp' : 'pacer';
-
   const onFinish = (r: ReadResult) => {
     setResult(r);
     setRunning(false);
-    // Sessions with an AI quiz are recorded once the quiz is scored.
-    if (!loadAiConfig().apiKey && isRecordable(r)) {
-      addSession({ mode: sessionMode, wpm: r.avgWpm, words: r.words, seconds: r.seconds, note: 'own text' });
-    }
+    // With agent-written questions, the session is saved once the quiz is scored.
+    if (!(questions && r.completed)) record(r);
   };
 
-  const recordWithoutQuiz = () => {
-    if (result && ai.apiKey && quizScore == null && isRecordable(result)) {
-      addSession({ mode: sessionMode, wpm: result.avgWpm, words: result.words, seconds: result.seconds, note: 'own text' });
-    }
+  const done = () => {
+    if (result) record(result);
+    resetResult();
   };
 
   if (running && mode !== 'view') {
@@ -100,60 +112,52 @@ export function Reader() {
       <div className="page wide">
         <div className="page-head">
           <button className="btn ghost" onClick={() => setRunning(false)}>← Back to text</button>
-          <h1>Reading</h1>
+          <h1>{title || 'Reading'}</h1>
         </div>
-        {mode === 'pacer' && <Pacer key={runKey} tokens={tokens} wpm={settings.wpm} chunkSize={settings.chunkSize} onFinish={onFinish} />}
-        {mode === 'rsvp' && <RSVP key={runKey} tokens={tokens} wpm={settings.wpm} chunkSize={1} onFinish={onFinish} />}
-        {mode === 'chunk' && <RSVP key={runKey} tokens={tokens} wpm={settings.wpm} chunkSize={Math.max(2, settings.chunkSize)} onFinish={onFinish} />}
+        {questions && <p className="muted small">Your agent attached {questions.length} questions. They follow when you finish.</p>}
+        {mode === 'pacer' && <Pacer key={runKey} tokens={tokens} wpm={wpm} chunkSize={chunkSize} onFinish={onFinish} />}
+        {mode === 'rsvp' && <RSVP key={runKey} tokens={tokens} wpm={wpm} chunkSize={1} onFinish={onFinish} />}
+        {mode === 'chunk' && <RSVP key={runKey} tokens={tokens} wpm={wpm} chunkSize={Math.max(2, chunkSize)} onFinish={onFinish} />}
       </div>
     );
   }
 
-  if (result) {
-    if (quiz && quizScore == null) {
-      return (
-        <div className="page">
-          <Quiz
-            questions={quiz}
-            onDone={(score) => {
-              setQuizScore(score);
-              if (isRecordable(result)) addSession({ mode: sessionMode, wpm: result.avgWpm, comprehension: score, words: result.words, seconds: result.seconds, note: 'own text, AI quiz' });
-            }}
-          />
-        </div>
-      );
-    }
-    const done = () => { recordWithoutQuiz(); resetResult(); };
+  // Quiz from agent-written questions: after a paced read, or on request in formatted view.
+  if (questions && quizScore == null && ((result && result.completed) || quizOpen)) {
+    return (
+      <div className="page">
+        <p className="muted small">Questions written by your agent{title ? ` for "${title}"` : ''}.</p>
+        <Quiz
+          questions={questions}
+          onDone={(score) => {
+            setQuizScore(score);
+            if (result) record(result, score);
+          }}
+        />
+      </div>
+    );
+  }
+
+  if (result || (quizOpen && quizScore != null)) {
     return (
       <div className="page">
         <h1>Recall check</h1>
         <p className="lede">
-          You read {result.words} words at <strong>{result.avgWpm} wpm</strong>.
+          {result && <>You read {result.words} words at <strong>{result.avgWpm} wpm</strong>.</>}
           {quizScore != null
-            ? <> Quiz: <strong>{Math.round(quizScore * 100)}%</strong>, effective speed <strong>{Math.round(result.avgWpm * quizScore)} wpm</strong>.</>
-            : ' Before looking back, check what stuck.'}
+            ? <> Quiz: <strong>{Math.round(quizScore * 100)}%</strong>{result && <>, effective speed <strong>{Math.round(result.avgWpm * quizScore)} wpm</strong></>}.</>
+            : ' Before looking back, write down what stuck.'}
         </p>
-        {quizScore == null && ai.apiKey && result.completed && (
-          <div className="panel">
-            <h3>Quiz me</h3>
-            <p className="muted small">Claude writes 5 questions about the key points of what you just read.</p>
-            <button className="btn primary" onClick={makeQuiz} disabled={quizState === 'loading'}>
-              {quizState === 'loading' ? 'Writing questions…' : 'Generate quiz'}
-            </button>
-            {quizState === 'error' && <div className="callout bad">{quizError}</div>}
-          </div>
-        )}
-        {!ai.apiKey && (
-          <p className="muted small">Tip: connect Claude on the <a href="#/agent">Agent output</a> page (Rewrite with Claude → AI settings) to get an auto-generated quiz here.</p>
-        )}
         {quizScore == null && (
           <>
-            <h3>{ai.apiKey ? 'Or write' : 'Write'} down the key points you remember</h3>
             <textarea className="paste" rows={6} value={recall} onChange={(e) => setRecall(e.target.value)} placeholder="Decision, numbers, action items, risks…" />
             <div className="row wrap">
               <button className="btn primary" onClick={() => setReveal(true)} disabled={!recall.trim()}>Compare with the text</button>
               <button className="btn" onClick={done}>Skip</button>
             </div>
+            <p className="muted small">
+              Want a scored quiz on text like this? Ask your agent to send it with questions, e.g. "send this to my ReadFaster reader with 5 comprehension questions". See <a href="#/agents">Agents</a>.
+            </p>
           </>
         )}
         {reveal && (
@@ -175,15 +179,25 @@ export function Reader() {
   return (
     <div className="page">
       <h1>Reader</h1>
-      <p className="lede">Paste agent output, docs or chat responses and read them with your trained techniques.</p>
+      <p className="lede">
+        Paste agent output, docs or chat responses and read them with your trained techniques. Or have your agent
+        {' '}<a href="#/agents">send text here directly</a>.
+      </p>
 
       <div className="panel">
         <div className="row wrap">
           <span className="muted small">Try a sample:</span>
           {SAMPLES.map((s) => (
-            <button key={s.id} className="btn small" onClick={() => { setSource(s.text); setTightenNote(''); }}>{s.label}</button>
+            <button key={s.id} className="btn small" onClick={() => { setSource(s.text); setTitle(''); setQuestions(null); setOverride({}); setTightenNote(''); }}>{s.label}</button>
           ))}
         </div>
+        {title && (
+          <div className="row agent-banner">
+            <span className="tag">From your agent</span>
+            <strong className="grow">{title}</strong>
+            {questions && <span className="muted small">{questions.length} questions attached</span>}
+          </div>
+        )}
         <textarea
           className="paste"
           rows={source ? 8 : 12}
@@ -192,7 +206,7 @@ export function Reader() {
           placeholder="Paste text here. Markdown is supported."
         />
         <div className="row wrap">
-          <span className="muted">{words} words · ~{formatDuration(readingSeconds(words, settings.wpm))} at {settings.wpm} wpm</span>
+          <span className="muted">{words} words · ~{formatDuration(readingSeconds(words, wpm))} at {wpm} wpm</span>
           <span className="grow" />
           <button className="btn" onClick={doTighten} disabled={!source.trim()} title="Strip stock openers, sign-offs and wordy phrases">Tighten</button>
           <a className="btn ghost" href="#/agent" onClick={() => sessionStorage.setItem('readfaster.analyze', source)}>Analyze →</a>
@@ -209,26 +223,29 @@ export function Reader() {
               ))}
             </div>
             {mode === 'view' ? (
-              <label className="row">
-                <input type="checkbox" checked={settings.bionic} onChange={(e) => updateSettings({ bionic: e.target.checked })} />
-                Bionic emphasis
-              </label>
+              <>
+                <label className="row">
+                  <input type="checkbox" checked={settings.bionic} onChange={(e) => updateSettings({ bionic: e.target.checked })} />
+                  Bionic emphasis
+                </label>
+                {questions && <button className="btn primary" onClick={() => setQuizOpen(true)}>Quiz me ({questions.length})</button>}
+              </>
             ) : (
               <>
                 <label className="row small">
                   Speed
-                  <input type="number" min={60} max={1500} step={10} value={settings.wpm} onChange={(e) => updateSettings({ wpm: Math.max(60, +e.target.value || 60) })} />
+                  <input type="number" min={60} max={1500} step={10} value={wpm} onChange={(e) => { setOverride((o) => ({ ...o, wpm: undefined })); updateSettings({ wpm: Math.max(60, +e.target.value || 60) }); }} />
                   wpm
                 </label>
                 {mode !== 'rsvp' && (
                   <label className="row small">
                     Chunk
-                    <select value={settings.chunkSize} onChange={(e) => updateSettings({ chunkSize: +e.target.value })}>
+                    <select value={chunkSize} onChange={(e) => { setOverride((o) => ({ ...o, chunkSize: undefined })); updateSettings({ chunkSize: +e.target.value }); }}>
                       {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n} word{n > 1 ? 's' : ''}</option>)}
                     </select>
                   </label>
                 )}
-                <button className="btn primary" onClick={() => { setRunKey((k) => k + 1); setRunning(true); }}>Read now</button>
+                <button className="btn primary" onClick={() => { resetResult(); setRunKey((k) => k + 1); setRunning(true); }}>Read now</button>
               </>
             )}
           </div>

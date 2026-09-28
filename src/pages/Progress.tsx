@@ -3,7 +3,7 @@ import { useApp } from '../state';
 import { effectiveWpm, summarize, type SessionRecord } from '../lib/storage';
 import { formatDuration } from '../lib/text';
 import { PASSAGES } from '../data/passages';
-import { DRILLS } from './Train';
+import { DRILLS } from '../lib/drills';
 
 const modeName = (m: string) => DRILLS.find((d) => d.id === m)?.name ?? m;
 

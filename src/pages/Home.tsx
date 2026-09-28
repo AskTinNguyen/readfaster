@@ -47,11 +47,15 @@ export function Home() {
           <h3>Shape what they write</h3>
           <ul className="checklist">
             <li><strong>Analyze</strong> any response: score, filler, wall-of-text, buried answers.</li>
-            <li><strong>Tighten or rewrite</strong> it instantly, locally or with Claude.</li>
+            <li><strong>Tighten</strong> it instantly, or hand a rewrite request to your own agent.</li>
             <li><strong>Build a style prompt</strong> for system prompts, CLAUDE.md or chat settings.</li>
             <li><strong>Follow-up commands</strong> to reshape a bloated answer in one message.</li>
+            <li><strong>Plug in your agent</strong> over MCP or the CLI: it can check its own drafts, send you reading with a quiz, and run your drills.</li>
           </ul>
-          <a className="btn" href="#/agent">Open agent tools →</a>
+          <div className="row wrap">
+            <a className="btn" href="#/agent">Open agent tools →</a>
+            <a className="btn ghost" href="#/agents">Connect your agent</a>
+          </div>
         </div>
       </div>
 

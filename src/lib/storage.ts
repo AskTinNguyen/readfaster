@@ -175,3 +175,20 @@ export function recommendWpm(history: SessionRecord[], current: number): number 
   else next = last * 0.95;
   return Math.max(100, Math.min(1200, Math.round(next / 10) * 10));
 }
+
+/** Whitelists and clamps a settings patch coming from an agent. */
+export function sanitizeSettings(patch: Record<string, unknown>): Partial<Settings> {
+  const out: Partial<Settings> = {};
+  const num = (v: unknown, lo: number, hi: number) =>
+    typeof v === 'number' && Number.isFinite(v) ? Math.max(lo, Math.min(hi, Math.round(v))) : undefined;
+  const wpm = num(patch.wpm, 60, 1500); if (wpm != null) out.wpm = wpm;
+  const chunk = num(patch.chunkSize, 1, 5); if (chunk != null) out.chunkSize = chunk;
+  const fs = num(patch.fontSize, 14, 32); if (fs != null) out.fontSize = fs;
+  const bpm = num(patch.beatBpm, 60, 160); if (bpm != null) out.beatBpm = bpm;
+  if (patch.font === 'sans' || patch.font === 'serif' || patch.font === 'mono') out.font = patch.font;
+  if (patch.theme === 'system' || patch.theme === 'light' || patch.theme === 'dark') out.theme = patch.theme;
+  for (const k of ['orp', 'fadeRead', 'beat', 'bionic'] as const) {
+    if (typeof patch[k] === 'boolean') out[k] = patch[k] as boolean;
+  }
+  return out;
+}
