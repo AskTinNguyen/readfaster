@@ -13,7 +13,7 @@ import { appLink, drillRoute, withPairing, type AppState, type DrillId, type Pai
 import { PASSAGES } from '../src/data/passages';
 import { countWords } from '../src/lib/text';
 import type { BridgeServer } from './bridge';
-import { analysisReport } from './format';
+import { analysisReport, plural } from './format';
 
 export interface McpDeps {
   /** Null when the local bridge could not start; link-based tools still work. */
@@ -84,7 +84,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
     return {
       content: [
         { type: 'text' as const, text: r.text },
-        { type: 'text' as const, text: `(${r.wordsBefore} → ${r.wordsAfter} words; removed ${r.removedSentences} filler sentences, rewrote ${r.replacedPhrases} phrases)` },
+        { type: 'text' as const, text: `(${r.wordsBefore} → ${r.wordsAfter} words; removed ${plural(r.removedSentences, 'filler sentence')}, rewrote ${plural(r.replacedPhrases, 'phrase')})` },
       ],
     };
   });

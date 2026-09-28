@@ -17,7 +17,7 @@ import { PRESETS, TARGETS, applyPreset, buildPrompt, defaultOptions, type Target
 import { appLink, drillRoute, type DrillId } from '../src/lib/protocol';
 import { PASSAGES } from '../src/data/passages';
 import { countWords } from '../src/lib/text';
-import { analysisJson, analysisReport } from './format';
+import { analysisJson, analysisReport, plural } from './format';
 import { loadConfig, openUrl } from './util';
 
 declare const __VERSION__: string;
@@ -132,7 +132,7 @@ export async function main(argv: string[]): Promise<number> {
     case 'tighten': {
       const r = tighten(await readInput(positional[0]));
       out(r.text);
-      process.stderr.write(`${r.wordsBefore} → ${r.wordsAfter} words (removed ${r.removedSentences} filler sentences, rewrote ${r.replacedPhrases} phrases)\n`);
+      process.stderr.write(`${r.wordsBefore} → ${r.wordsAfter} words (removed ${plural(r.removedSentences, 'filler sentence')}, rewrote ${plural(r.replacedPhrases, 'phrase')})\n`);
       return 0;
     }
     case 'prompt': {

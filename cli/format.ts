@@ -1,6 +1,8 @@
 import type { Analysis, Severity } from '../src/lib/analyzer';
 import { formatDuration } from '../src/lib/text';
 
+export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
 const ICON: Record<Severity, string> = { bad: '✕', warn: '!', info: 'i', good: '✓' };
 
 /** Plain-text analysis report, used by both the CLI and the MCP tool. */
